@@ -23,11 +23,11 @@ svg{width:100%;height:100%;display:block;background:#0a0a0a;touch-action:none}
 #dlg input{width:100%;font-size:16px;padding:8px;margin:10px 0;background:#111;color:#eee;border:1px solid #555;border-radius:6px}
 </style></head><body>
 <div id="app"><div id="toolbar">
-<button id="btnDraw" class="active">線を引く</button><button id="btnSelect">選択</button><button id="btnDoor">ドア</button><button id="btnDouble">両開き</button><button id="btnWindow">窓</button><button id="btnErase">消す</button><button id="btnUndo">↶ 戻す</button><button id="btnReset" style="background:#5a2a2a;border-color:#844">リセット</button>
+<button id="btnDraw" class="active">線を引く</button><button id="btnSelect">選択</button><button id="btnDoor">ドア</button><button id="btnDouble">両開き</button><button id="btnWindow">窓</button><button id="btnFlip">向き</button><button id="btnErase">消す</button><button id="btnUndo">↶ 戻す</button><button id="btnShare">画像で共有</button><button id="btnReset" style="background:#5a2a2a;border-color:#844">リセット</button>
 </div><div id="wrap"><svg id="svg" xmlns="http://www.w3.org/2000/svg">
 <defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0L0 0 0 20" fill="none" stroke="#2a2a2a"/></pattern></defs>
 <g id="view"><rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#grid)"/><g id="content"></g></g></svg>
-<div id="status">準備完了</div></div></div>
+<div id="status">準備完了</div><button id="btnFlipSel" style="position:absolute;top:44px;left:8px;display:none;background:#4a7dff;border-color:#4a7dff">向きを変える</button></div></div>
 <button id="menuToggle">≡</button>
 <div id="menu"><div style="font-weight:bold;margin-bottom:8px">メニュー</div>
 <button id="btnText">テキスト追加</button><button id="btnDelete">選択を削除</button><button id="btnClear">全消去</button><button id="btnResetView">表示リセット</button><button id="btnExport">画像で保存/共有</button>
@@ -55,8 +55,11 @@ const col=o.id===selectedId?'#ffb86b':o.type==='doubledoor'?'#c9a0ff':o.type==='
 const ax=cx-ux*h,ay=cy-uy*h,bx=cx+ux*h,by=cy+uy*h;
 el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'#0a0a0a','stroke-width':l.thickness+2});
 if(o.type==='window'){for(const s of[-2,2])el('line',{x1:ax+nx*s,y1:ay+ny*s,x2:bx+nx*s,y2:by+ny*s,stroke:o.id===selectedId?'#ffb86b':col,'stroke-width':1.5})}
-else if(o.type==='door'){const w=o.width;el('path',{d:`M${ax} ${ay}L${ax+nx*w} ${ay+ny*w}A${w} ${w} 0 0 1 ${bx} ${by}`,fill:'none',stroke:col,'stroke-width':2})}
-else{el('path',{d:`M${ax} ${ay}L${ax+nx*h} ${ay+ny*h}A${h} ${h} 0 0 1 ${cx} ${cy}M${bx} ${by}L${bx+nx*h} ${by+ny*h}A${h} ${h} 0 0 0 ${cx} ${cy}`,fill:'none',stroke:col,'stroke-width':2})}}
+else{const sd=o.side||1,N=[nx*sd,ny*sd];
+const leaf=(H,E,r)=>{const P=[H[0]+N[0]*r,H[1]+N[1]*r],cr=(P[0]-H[0])*(E[1]-H[1])-(P[1]-H[1])*(E[0]-H[0]);return`M${H[0]} ${H[1]}L${P[0]} ${P[1]}A${r} ${r} 0 0 ${cr>0?1:0} ${E[0]} ${E[1]}`};
+const A=[ax,ay],B=[bx,by],C=[cx,cy];
+el('path',{d:o.type==='door'?(o.hinge?leaf(B,A,o.width):leaf(A,B,o.width)):leaf(A,C,h)+leaf(B,C,h),fill:'none',stroke:col,'stroke-width':2})}}
+const so=S.openings.find(o=>o.id===selectedId&&o.type!=='window');$('btnFlipSel').style.display=so&&mode==='select'?'':'none';
 for(const t of S.texts)el('text',{x:t.x,y:t.y,fill:t.id===selectedId?'#ffb86b':'#fff','font-size':16,'text-anchor':'middle'}).textContent=t.text;
 window.__counts.lines=S.lines.length;window.__counts.openings=S.openings.length}
 function findLine(x,y){for(let i=S.lines.length-1;i>=0;i--){const l=S.lines[i],C=l.x2-l.x1,D=l.y2-l.y1,q=C*C+D*D;let t=q?((x-l.x1)*C+(y-l.y1)*D)/q:0;t=Math.max(0,Math.min(1,t));
@@ -64,12 +67,14 @@ if(Math.hypot(x-l.x1-t*C,y-l.y1-t*D)<20/V.k)return{l,t}}return null}
 function opC(o){const l=S.lines.find(l=>l.id===o.wallId);if(!l)return null;return{x:l.x1+(l.x2-l.x1)*o.t,y:l.y1+(l.y2-l.y1)*o.t}}
 function findOpening(x,y){for(let i=S.openings.length-1;i>=0;i--){const o=S.openings[i],c=opC(o);if(c&&Math.hypot(x-c.x,y-c.y)<o.width/2+6/V.k)return o}return null}
 function pick(p){const t=findText(p.x,p.y);if(t)return{id:t.id,kind:'text',obj:t};const o=findOpening(p.x,p.y);if(o)return{id:o.id,kind:'opening'};const f=findLine(p.x,p.y);return f?{id:f.l.id,kind:'line'}:null}
+function flipOp(o){push();if(o.type==='door'){const i=((o.hinge?2:0)+((o.side||1)<0?1:0)+1)%4;o.hinge=i>>1;o.side=i&1?-1:1}else o.side=-(o.side||1);save();render()}
 function delItem(id){push();S.lines=S.lines.filter(l=>l.id!==id);S.texts=S.texts.filter(t=>t.id!==id);S.openings=S.openings.filter(o=>o.id!==id&&o.wallId!==id);if(selectedId===id)selectedId=null;save();render()}
 const findText=(x,y)=>S.texts.slice().reverse().find(t=>Math.abs(t.x-x)<40&&Math.abs(t.y-6-y)<16);
-wrap.addEventListener('pointerdown',e=>{e.preventDefault();wrap.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+wrap.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;e.preventDefault();wrap.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
 if(ptrs.size===2){if(temp){temp.remove();temp=null}startPt=null;dragText=null;const[a,b]=[...ptrs.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),mx:(a.x+b.x)/2,my:(a.y+b.y)/2,V:{...V}};return}
 if(ptrs.size>2)return;const p=pos(e);
 if(mode==='draw'){startPt=snap(p)}
+else if(mode==='flip'){const o=findOpening(p.x,p.y);if(o&&o.type!=='window'){flipOp(o);statusEl.textContent='向きを変えました'}else statusEl.textContent='ドアをタップしてください'}
 else if(mode==='erase'){const k=pick(p);if(k){delItem(k.id);statusEl.textContent='1つ消しました'}else statusEl.textContent='消すものがありません'}
 else if(mode==='select'){const k=pick(p);selectedId=k?k.id:null;if(k&&k.kind==='text'){push();dragText=k.obj;statusEl.textContent='テキスト選択中（ドラッグで移動）'}else statusEl.textContent=k?'選択中':'未選択';render()}
 else{const f=findLine(p.x,p.y);if(f){push();S.openings.push({type:mode,wallId:f.l.id,t:Math.max(.15,Math.min(.85,f.t)),width:openingSize,id:S.nextId++});save();statusEl.textContent='配置しました';render()}}});
@@ -90,9 +95,9 @@ wrap.addEventListener('pointerup',up);wrap.addEventListener('pointercancel',up);
 function dialog(msg,def,input){return new Promise(res=>{$('dlgMsg').textContent=msg;const i=$('dlgIn');i.style.display=input?'':'none';i.value=def||'';$('dlg').classList.add('show');if(input)setTimeout(()=>i.focus(),50);
 const done=v=>{$('dlg').classList.remove('show');$('dlgOk').onclick=$('dlgNo').onclick=null;res(v)};$('dlgOk').onclick=()=>done(input?i.value:true);$('dlgNo').onclick=()=>done(input?null:false)})}
 const on=(id,fn)=>$(id).addEventListener('click',e=>{e.preventDefault();fn()});
-const labels={draw:'線を引く',select:'選択',door:'ドア',doubledoor:'両開き',window:'窓',erase:'消す'};
-function setMode(m){mode=m;window.__counts.modes++;document.querySelectorAll('#toolbar button').forEach(b=>b.classList.remove('active'));$({draw:'btnDraw',select:'btnSelect',door:'btnDoor',doubledoor:'btnDouble',window:'btnWindow',erase:'btnErase'}[m]).classList.add('active');statusEl.textContent=labels[m]+' モード'}
-on('btnDraw',()=>setMode('draw'));on('btnSelect',()=>setMode('select'));on('btnDoor',()=>setMode('door'));on('btnDouble',()=>setMode('doubledoor'));on('btnWindow',()=>setMode('window'));on('btnErase',()=>setMode('erase'));
+const labels={draw:'線を引く',select:'選択',door:'ドア',doubledoor:'両開き',window:'窓',erase:'消す',flip:'向き'};
+function setMode(m){mode=m;window.__counts.modes++;document.querySelectorAll('#toolbar button').forEach(b=>b.classList.remove('active'));$({draw:'btnDraw',select:'btnSelect',door:'btnDoor',doubledoor:'btnDouble',window:'btnWindow',erase:'btnErase',flip:'btnFlip'}[m]).classList.add('active');statusEl.textContent=labels[m]+' モード';render()}
+on('btnDraw',()=>setMode('draw'));on('btnSelect',()=>setMode('select'));on('btnDoor',()=>setMode('door'));on('btnDouble',()=>setMode('doubledoor'));on('btnWindow',()=>setMode('window'));on('btnErase',()=>setMode('erase'));on('btnFlip',()=>setMode('flip'));on('btnShare',()=>$('btnExport').click());on('btnFlipSel',()=>{const o=S.openings.find(o=>o.id===selectedId);if(o)flipOp(o)});
 on('btnUndo',()=>{if(!hist.length){statusEl.textContent='戻せません';return}S=JSON.parse(hist.pop());selectedId=null;save();render();statusEl.textContent='戻しました'});
 $('thickness').oninput=e=>wallThickness=+e.target.value;$('openingSize').oninput=e=>openingSize=+e.target.value;
 on('btnText',async()=>{menu.classList.remove('open');const t=await dialog('テキストを入力','部屋',true);if(t){const r=wrap.getBoundingClientRect(),c=snap({x:(r.width/2-V.x)/V.k,y:(r.height/2-V.y)/V.k});push();S.texts.push({x:c.x,y:c.y,text:t,id:S.nextId++});save();render()}});
