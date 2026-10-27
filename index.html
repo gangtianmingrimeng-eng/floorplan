@@ -1,0 +1,102 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="間取り">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' fill='%23111'/%3E%3Cpath d='M30 30h120v120H30z' fill='none' stroke='%23e0e0e0' stroke-width='8'/%3E%3Cpath d='M90 30v60h60' fill='none' stroke='%234a7dff' stroke-width='8'/%3E%3C/svg%3E">
+<title>マップエディタ</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#111;color:#eee;font-family:-apple-system,sans-serif;overflow:hidden;overscroll-behavior:none}
+#app{display:flex;flex-direction:column;height:100%}
+#toolbar{background:#222;padding:8px;padding-top:calc(8px + env(safe-area-inset-top));padding-left:calc(8px + env(safe-area-inset-left));padding-right:calc(8px + env(safe-area-inset-right));display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid #444}
+button{touch-action:manipulation;-webkit-user-select:none;user-select:none;min-height:40px;padding:8px 12px;background:#333;color:#eee;border:1px solid #555;border-radius:6px;font-size:15px}
+#toolbar button.active{background:#4a7dff;border-color:#4a7dff}
+#wrap{flex:1;position:relative;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+svg{width:100%;height:100%;display:block;background:#0a0a0a;touch-action:none}
+#status{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.75);padding:6px 10px;border-radius:6px;font-size:14px;pointer-events:none}
+#menuToggle{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));right:calc(16px + env(safe-area-inset-right));width:56px;height:56px;border-radius:50%;background:#4a7dff;border:none;font-size:24px;z-index:201;box-shadow:0 2px 10px #0008}
+#menu{position:fixed;bottom:0;left:0;right:0;background:#1e1e1e;border-top:1px solid #444;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom));transform:translateY(110%);transition:transform .25s;z-index:200;max-height:70vh;overflow-y:auto}
+#menu.open{transform:none}#menu button{margin:4px}#menu label{display:block;margin:10px 0}
+#dlg{position:fixed;inset:0;background:#0009;display:none;align-items:center;justify-content:center;z-index:300}
+#dlg.show{display:flex}#dlg div{background:#222;padding:16px;border-radius:10px;width:80%;max-width:320px}
+#dlg input{width:100%;font-size:16px;padding:8px;margin:10px 0;background:#111;color:#eee;border:1px solid #555;border-radius:6px}
+</style></head><body>
+<div id="app"><div id="toolbar">
+<button id="btnDraw" class="active">線を引く</button><button id="btnSelect">選択</button><button id="btnDoor">ドア</button><button id="btnDouble">両開き</button><button id="btnWindow">窓</button><button id="btnUndo">↶ 戻す</button>
+</div><div id="wrap"><svg id="svg" xmlns="http://www.w3.org/2000/svg">
+<defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0L0 0 0 20" fill="none" stroke="#2a2a2a"/></pattern></defs>
+<g id="view"><rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#grid)"/><g id="content"></g></g></svg>
+<div id="status">準備完了</div></div></div>
+<button id="menuToggle">≡</button>
+<div id="menu"><div style="font-weight:bold;margin-bottom:8px">メニュー</div>
+<button id="btnText">テキスト追加</button><button id="btnDelete">選択を削除</button><button id="btnClear">全消去</button><button id="btnResetView">表示リセット</button><button id="btnExport">画像で保存/共有</button>
+<label>壁の太さ <input type="range" id="thickness" min="1" max="8" value="3"></label>
+<label>開口サイズ <input type="range" id="openingSize" min="20" max="80" value="36"></label>
+<button id="btnCloseMenu">閉じる</button></div>
+<div id="dlg"><div><div id="dlgMsg"></div><input id="dlgIn"><button id="dlgOk">OK</button> <button id="dlgNo">キャンセル</button></div></div>
+<script>
+const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
+const svg=$('svg'),content=$('content'),viewG=$('view'),statusEl=$('status'),menu=$('menu'),wrap=$('wrap');
+let S={lines:[],texts:[],openings:[],nextId:1},mode='draw',selectedId=null,G=20,wallThickness=3,openingSize=36;
+let V={x:0,y:0,k:1},hist=[],temp=null,startPt=null,ptrs=new Map(),pinch=null,dragText=null;
+window.__counts={lines:0,openings:0,modes:0};
+try{const d=JSON.parse(localStorage.getItem('fp-data'));if(d&&d.lines)S=d}catch(e){}
+const save=()=>{try{localStorage.setItem('fp-data',JSON.stringify(S))}catch(e){}};
+const push=()=>{hist.push(JSON.stringify(S));if(hist.length>100)hist.shift()};
+const snap=p=>({x:Math.round(p.x/G)*G,y:Math.round(p.y/G)*G});
+function pos(e){const r=wrap.getBoundingClientRect();return{x:(e.clientX-r.left-V.x)/V.k,y:(e.clientY-r.top-V.y)/V.k}}
+function el(t,a){const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);content.appendChild(n);return n}
+function render(){viewG.setAttribute('transform',`translate(${V.x},${V.y}) scale(${V.k})`);content.innerHTML='';
+for(const l of S.lines)el('line',{x1:l.x1,y1:l.y1,x2:l.x2,y2:l.y2,stroke:l.id===selectedId?'#ffb86b':'#e0e0e0','stroke-width':l.thickness,'stroke-linecap':'square'});
+for(const o of S.openings){const l=S.lines.find(l=>l.id===o.wallId);if(!l)continue;
+const dx=l.x2-l.x1,dy=l.y2-l.y1,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,nx=-uy,ny=ux,cx=l.x1+dx*o.t,cy=l.y1+dy*o.t,h=o.width/2;
+const col=o.type==='doubledoor'?'#c9a0ff':o.type==='door'?'#7dd3fc':'#67e8f9';
+const ax=cx-ux*h,ay=cy-uy*h,bx=cx+ux*h,by=cy+uy*h;
+el('line',{x1:ax,y1:ay,x2:bx,y2:by,stroke:'#0a0a0a','stroke-width':l.thickness+2});
+if(o.type==='window'){for(const s of[-2,2])el('line',{x1:ax+nx*s,y1:ay+ny*s,x2:bx+nx*s,y2:by+ny*s,stroke:col,'stroke-width':1.5})}
+else if(o.type==='door'){const w=o.width;el('path',{d:`M${ax} ${ay}L${ax+nx*w} ${ay+ny*w}A${w} ${w} 0 0 1 ${bx} ${by}`,fill:'none',stroke:col,'stroke-width':2})}
+else{el('path',{d:`M${ax} ${ay}L${ax+nx*h} ${ay+ny*h}A${h} ${h} 0 0 1 ${cx} ${cy}M${bx} ${by}L${bx+nx*h} ${by+ny*h}A${h} ${h} 0 0 0 ${cx} ${cy}`,fill:'none',stroke:col,'stroke-width':2})}}
+for(const t of S.texts)el('text',{x:t.x,y:t.y,fill:t.id===selectedId?'#ffb86b':'#fff','font-size':16,'text-anchor':'middle'}).textContent=t.text;
+window.__counts.lines=S.lines.length;window.__counts.openings=S.openings.length}
+function findLine(x,y){for(let i=S.lines.length-1;i>=0;i--){const l=S.lines[i],C=l.x2-l.x1,D=l.y2-l.y1,q=C*C+D*D;let t=q?((x-l.x1)*C+(y-l.y1)*D)/q:0;t=Math.max(0,Math.min(1,t));
+if(Math.hypot(x-l.x1-t*C,y-l.y1-t*D)<20/V.k)return{l,t}}return null}
+const findText=(x,y)=>S.texts.slice().reverse().find(t=>Math.abs(t.x-x)<40&&Math.abs(t.y-6-y)<16);
+wrap.addEventListener('pointerdown',e=>{e.preventDefault();wrap.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+if(ptrs.size===2){if(temp){temp.remove();temp=null}startPt=null;dragText=null;const[a,b]=[...ptrs.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),mx:(a.x+b.x)/2,my:(a.y+b.y)/2,V:{...V}};return}
+if(ptrs.size>2)return;const p=pos(e);
+if(mode==='draw'){startPt=snap(p)}
+else if(mode==='select'){const t=findText(p.x,p.y);if(t){selectedId=t.id;push();dragText=t;statusEl.textContent='テキスト選択中（ドラッグで移動）'}else{const f=findLine(p.x,p.y);selectedId=f?f.l.id:null;statusEl.textContent=f?'選択中':'未選択'}render()}
+else{const f=findLine(p.x,p.y);if(f){push();S.openings.push({type:mode,wallId:f.l.id,t:Math.max(.15,Math.min(.85,f.t)),width:openingSize,id:S.nextId++});save();statusEl.textContent='配置しました';render()}}});
+wrap.addEventListener('pointermove',e=>{if(!ptrs.has(e.pointerId))return;ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+if(pinch&&ptrs.size===2){const[a,b]=[...ptrs.values()],d=Math.hypot(a.x-b.x,a.y-b.y),mx=(a.x+b.x)/2,my=(a.y+b.y)/2,r=wrap.getBoundingClientRect();
+const k=Math.max(.3,Math.min(5,pinch.V.k*d/pinch.d)),px=(pinch.mx-r.left-pinch.V.x)/pinch.V.k,py=(pinch.my-r.top-pinch.V.y)/pinch.V.k;
+V={k,x:mx-r.left-px*k,y:my-r.top-py*k};render();return}
+const p=pos(e);if(dragText){const s=snap(p);dragText.x=s.x;dragText.y=s.y;render();return}
+if(!startPt)return;const s=snap(p);if(temp)temp.remove();
+temp=el('line',{x1:startPt.x,y1:startPt.y,x2:s.x,y2:s.y,stroke:'#4a7dff','stroke-width':wallThickness,'stroke-dasharray':'8 6'})});
+function up(e){if(!ptrs.has(e.pointerId))return;ptrs.delete(e.pointerId);
+if(pinch){if(ptrs.size===0)pinch=null;return}
+if(dragText){dragText=null;save();return}
+if(!startPt)return;const s=snap(pos(e));if(temp){temp.remove();temp=null}
+if(e.type==='pointerup'&&Math.hypot(s.x-startPt.x,s.y-startPt.y)>10){push();S.lines.push({x1:startPt.x,y1:startPt.y,x2:s.x,y2:s.y,thickness:wallThickness,id:S.nextId++});save();statusEl.textContent='線を追加 ('+S.lines.length+')'}
+startPt=null;render()}
+wrap.addEventListener('pointerup',up);wrap.addEventListener('pointercancel',up);
+function dialog(msg,def,input){return new Promise(res=>{$('dlgMsg').textContent=msg;const i=$('dlgIn');i.style.display=input?'':'none';i.value=def||'';$('dlg').classList.add('show');if(input)setTimeout(()=>i.focus(),50);
+const done=v=>{$('dlg').classList.remove('show');$('dlgOk').onclick=$('dlgNo').onclick=null;res(v)};$('dlgOk').onclick=()=>done(input?i.value:true);$('dlgNo').onclick=()=>done(input?null:false)})}
+const on=(id,fn)=>$(id).addEventListener('click',e=>{e.preventDefault();fn()});
+const labels={draw:'線を引く',select:'選択',door:'ドア',doubledoor:'両開き',window:'窓'};
+function setMode(m){mode=m;window.__counts.modes++;document.querySelectorAll('#toolbar button').forEach(b=>b.classList.remove('active'));$({draw:'btnDraw',select:'btnSelect',door:'btnDoor',doubledoor:'btnDouble',window:'btnWindow'}[m]).classList.add('active');statusEl.textContent=labels[m]+' モード'}
+on('btnDraw',()=>setMode('draw'));on('btnSelect',()=>setMode('select'));on('btnDoor',()=>setMode('door'));on('btnDouble',()=>setMode('doubledoor'));on('btnWindow',()=>setMode('window'));
+on('btnUndo',()=>{if(!hist.length){statusEl.textContent='戻せません';return}S=JSON.parse(hist.pop());selectedId=null;save();render();statusEl.textContent='戻しました'});
+$('thickness').oninput=e=>wallThickness=+e.target.value;$('openingSize').oninput=e=>openingSize=+e.target.value;
+on('btnText',async()=>{menu.classList.remove('open');const t=await dialog('テキストを入力','部屋',true);if(t){const r=wrap.getBoundingClientRect(),c=snap({x:(r.width/2-V.x)/V.k,y:(r.height/2-V.y)/V.k});push();S.texts.push({x:c.x,y:c.y,text:t,id:S.nextId++});save();render()}});
+on('btnDelete',()=>{if(!selectedId)return;push();S.lines=S.lines.filter(l=>l.id!==selectedId);S.texts=S.texts.filter(t=>t.id!==selectedId);S.openings=S.openings.filter(o=>o.wallId!==selectedId);selectedId=null;save();render()});
+on('btnClear',async()=>{if(await dialog('すべて消去しますか？',null,false)){push();S={lines:[],texts:[],openings:[],nextId:S.nextId};selectedId=null;save();render()}});
+on('btnResetView',()=>{V={x:0,y:0,k:1};render()});on('btnCloseMenu',()=>menu.classList.remove('open'));on('menuToggle',()=>menu.classList.toggle('open'));
+on('btnExport',()=>{const r=wrap.getBoundingClientRect(),c=svg.cloneNode(true);c.setAttribute('width',r.width);c.setAttribute('height',r.height);
+const img=new Image(),url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(c)],{type:'image/svg+xml'}));
+img.onload=()=>{const cv=document.createElement('canvas'),s=2;cv.width=r.width*s;cv.height=r.height*s;const x=cv.getContext('2d');x.fillStyle='#0a0a0a';x.fillRect(0,0,cv.width,cv.height);x.scale(s,s);x.drawImage(img,0,0);URL.revokeObjectURL(url);
+cv.toBlob(async b=>{const f=new File([b],'madori.png',{type:'image/png'});if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:'間取り'})}catch(e){}}else{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='madori.png';a.click()}},'image/png')};img.src=url});
+document.addEventListener('gesturestart',e=>e.preventDefault());
+setMode('draw');statusEl.textContent='ドラッグで線を引いてください（2本指で拡大・移動）';render();
+</script></body></html>
